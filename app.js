@@ -2,10 +2,11 @@
 // CONFIGURACIÓN DE SUPABASE
 // ==========================================
 const SUPABASE_URL = 'https://fquascdipcgxrprfacyf.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_ELKC1Tym8k-nhnkB6iQNjQ_FXX7iQGz';
+// Clave anónima pública oficial de Supabase (JWT)
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxdWFzY2RpcGNneHJwcmZhY3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3MTgxMTMsImV4cCI6MjEwOTI5NDExM30.BqGNq1bWbYprxXkALiUDm08tpuHJNCUgtOIokzp2tLI';
 
-// Inicializar el cliente oficial de Supabase
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Usar supabaseClient para evitar colisiones con la variable global 'supabase' del CDN
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ==========================================
 // ESTADO GLOBAL DE LA APP
@@ -67,7 +68,7 @@ async function fetchOpportunities(showLoading = true) {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('opportunities')
       .select('*')
       .order('created_at', { ascending: false });
@@ -234,15 +235,16 @@ function resetFilters() {
 // ==========================================
 async function handleLike(opportunityId, currentLikes) {
   try {
-    // 1. Intentar llamar a la función RPC atómica increment_likes en Supabase
     let newLikes = currentLikes + 1;
-    const { data, error: rpcError } = await supabase.rpc('increment_likes', {
+    
+    // 1. Intentar llamar a la función RPC atómica increment_likes en Supabase
+    const { data, error: rpcError } = await supabaseClient.rpc('increment_likes', {
       opportunity_id: opportunityId
     });
 
     if (rpcError) {
-      // Si la función RPC no está disponible, actualizar directamente
-      const { error: updateError } = await supabase
+      // Fallback: actualizar directamente en la tabla
+      const { error: updateError } = await supabaseClient
         .from('opportunities')
         .update({ likes: currentLikes + 1 })
         .eq('id', opportunityId);
@@ -306,7 +308,7 @@ async function handleFormSubmit(e) {
       likes: 0
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('opportunities')
       .insert([newOpportunity])
       .select();
@@ -337,11 +339,10 @@ async function handleFormSubmit(e) {
 // ==========================================
 function setupRealtimeSubscription() {
   try {
-    supabase
+    supabaseClient
       .channel('opportunities_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, payload => {
         console.log('Cambio detectado en Supabase en tiempo real:', payload);
-        // Recargar en segundo plano sin interrumpir la vista
         fetchOpportunities(false);
         if (payload.eventType === 'INSERT') {
           showToast('🔔 ¡Alguien acaba de publicar una nueva oportunidad!', 'info');
@@ -429,4 +430,3 @@ function escapeHTML(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
